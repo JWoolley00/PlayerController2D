@@ -1,0 +1,255 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class PlayerController2D : MonoBehaviour
+{
+
+    //Declaring Items
+    Rigidbody2D rB;
+    CapsuleCollider2D cC;
+    SpriteRenderer sR;
+
+    //Declaring Inputs
+    private float inputX;
+    private float lastInputX;
+    private bool jumpHeld;
+    private bool jumpDown;
+
+    //Declaring Checks
+    [Header("Checks")]
+    public bool isGrounded;
+    public bool isTouchingWall;
+    public bool isFacingRight;
+    public bool isJumping;
+    private bool canDoubleJump;
+    private bool doubleJumpUsed;
+    [SerializeField] private LayerMask groundLayerMask;
+
+    //Declaring Ability Toggles
+    [Header("Abilities")]
+    public bool doubleJump;
+
+    //Declaring Variables
+    [Header("Movement")]
+    public float moveSpeed = 12f;
+    public float acceleration = 10f;
+    public float decceleration = 10f;
+    private float velocityPower = 0.9f;
+    private float frictionAmount = 0.4f;
+
+    [Header("Jumping")]
+    public float jumpForce = 18f;
+    private float jumpCutMultiplier = 0.9f;
+    private float jumpCooldownTime = 0.3f;
+    private float jumpBufferTime = 0.2f;
+    private float jumpCoyoteTime = 0.1f;
+
+    [Header("Gravity")]
+    public float gravityScale = 3.2f;
+    private float fallGravityMultiplier = 1.3f;
+    private float clampedFallSpeed = -22f;
+
+
+    //Declaring Timers
+    private float jumpCooldownCounter;
+    private float jumpCoyoteCounter;
+    private float jumpBufferCounter;
+
+
+
+    //MonoBehaviour Methods
+
+    void Start()
+    {
+        rB = GetComponent<Rigidbody2D>();
+        cC = GetComponent<CapsuleCollider2D>();
+        sR = GetComponent<SpriteRenderer>();
+    }
+
+    void Update()
+    {
+        GatherInputs();
+        DoTimers();
+        Flip();
+    }
+
+    void FixedUpdate()
+    {
+        CheckCollision();
+        Move();
+        Friction();
+        Jump();
+        Gravity();
+    }
+
+
+    //Player Condition Methods
+
+    public void CheckCollision()
+    {
+        //This method checks player's collisions
+
+        //Check if the player is grounded by castinig a virtual collision box below their feet
+        isGrounded = Physics2D.BoxCast(cC.bounds.center, new Vector3(cC.bounds.size.x * 0.9f, cC.bounds.size.y), 0f, Vector2.down, .1f, groundLayerMask);
+        if(isGrounded)
+        {
+            jumpCoyoteCounter = jumpCoyoteTime;
+        }
+        isTouchingWall = Physics2D.BoxCast(cC.bounds.center, new Vector3(cC.bounds.size.x, cC.bounds.size.y * 0.9f), 0f, Vector2.right, .1f, groundLayerMask);
+    }
+
+    public void Flip()
+    {
+        //This method makes sure the player sprite is facing the right direction
+
+        //If you're facing right
+        if (lastInputX > 0f)
+        {
+            sR.flipX = false;
+            isFacingRight = true;
+        }
+        //If you're facing left
+        else if (lastInputX < 0f)
+        {
+            sR.flipX = true;
+            isFacingRight = false;
+        }
+        //If its null at the start, you start facing right
+        else
+        {
+            sR.flipX = false;
+            isFacingRight = true;
+        }
+    }
+
+    public void DoTimers()
+    {
+        //This method counts down timers for various functions
+        jumpCooldownCounter -= Time.deltaTime;
+        jumpCoyoteCounter -= Time.deltaTime;
+        jumpBufferCounter -= Time.deltaTime;
+    }
+
+
+    //Movement Methods
+
+    public void GatherInputs()
+    {
+        //This method gathers input from the player
+
+        inputX = Input.GetAxisRaw("Horizontal");
+        lastInputX = (inputX != 0f) ? inputX : lastInputX;
+        jumpHeld = Input.GetButton("Jump");
+        jumpDown = Input.GetButtonDown("Jump");
+
+        //This specifies the window during which the player can press jump
+        //  before they hit the ground and have it still register
+        if (jumpDown)
+        {
+            jumpBufferCounter = jumpBufferTime;
+        }
+    }
+
+    public void Move()
+    {
+        //This method drives player's horizontal movement
+
+        //Find the desired velocity, whether that be moving or stopping
+        float targetVelocity = inputX * moveSpeed;
+
+        //Find the difference between desired and current directional speed
+        float velocityDif = targetVelocity - rB.velocity.x;
+
+        //Determine whether to accelerate or deccelerate in order to reach target velocity
+        float accelRate = (Mathf.Abs(targetVelocity) > 0.01f) ? acceleration : decceleration;
+
+        //Finds necessary force to achieve desired speed, then clarifies direction of that force
+        float movementForce = Mathf.Pow(Mathf.Abs(velocityDif) * accelRate, velocityPower) * Mathf.Sign(velocityDif);
+
+        //Applies determined force to player, moving them
+        rB.AddForce(movementForce * Vector2.right);
+    }
+
+    public void Friction()
+    {
+        //This method applies additional friction to the player's horizontal movement
+        if (isGrounded && Mathf.Abs(inputX) < 0.01f)
+        {
+            float amount = Mathf.Min(Mathf.Abs(rB.velocity.x), frictionAmount);
+            amount *= Mathf.Sign(rB.velocity.x);
+            rB.AddForce(Vector2.right * -amount, ForceMode2D.Impulse);
+        }
+    }
+
+    public void Jump()
+    {
+        //This method drives player's jumping
+
+        //Counts the double jump usage; if in the future you want multiple
+        // in-air jumps, use an integer and count down jumps remaining rather
+        // than a bool saying the double jump was used
+        if(isGrounded)
+        {
+            doubleJumpUsed = false;
+        }
+        canDoubleJump = doubleJumpUsed ? false : true;
+
+        //If within the jump buffer window, and within the coyote time window,
+        // and after the jump cooldown has expired, jump!
+        if(jumpBufferCounter > 0f && jumpCoyoteCounter > 0f && jumpCooldownCounter < 0f)
+        {
+            rB.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+            jumpCooldownCounter = jumpCooldownTime;
+            jumpCoyoteCounter = 0f;
+            jumpBufferCounter = 0f;
+        }
+
+        //If the player can double jump and inputs to do so, execute
+        if(doubleJump && canDoubleJump && jumpBufferCounter > 0f && jumpCooldownCounter < 0f)
+        {
+            rB.AddForce(Vector2.up * jumpForce * 1.1f, ForceMode2D.Impulse);
+            jumpCooldownCounter = jumpCooldownTime;
+            jumpCoyoteCounter = 0f;
+            jumpBufferCounter = 0f;
+            doubleJumpUsed = true;
+        }
+
+        //If you're moving up, you're jumping
+        isJumping = (rB.velocity.y > 0) ? true : false;
+
+
+        //If you're moving up but no longer holding down the jump button, get pushed down
+        // to create a variable jump height
+        if(!jumpHeld && isJumping)
+        {
+            rB.AddForce(Vector2.down * rB.velocity.y * (1-jumpCutMultiplier), ForceMode2D.Impulse);
+            jumpBufferCounter = 0;
+        }
+    }
+
+    public void Gravity()
+    {
+        //This method drives player gravity
+
+        //If the player is falling, make the fall snappy and faster
+        if (rB.velocity.y < 0)
+        {
+            rB.gravityScale = gravityScale * fallGravityMultiplier;
+        }
+        //If the player is on the ground or jumping, make gravity normal
+        // (i.e. less resistant than when falling)
+        else
+        {
+            rB.gravityScale = gravityScale;
+        }
+
+        //If the player is falling too fast, make them fall at the specified speed
+        // so that they can maintain some mid-air control
+        if(rB.velocity.y < clampedFallSpeed)
+        {
+            rB.velocity = new Vector2(rB.velocity.x, clampedFallSpeed);
+        }
+    }
+
+}
